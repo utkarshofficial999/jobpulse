@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Briefcase, 
   Send, 
@@ -18,7 +18,12 @@ import {
   Clock,
   Check,
   ShieldCheck,
-  Flame
+  Flame,
+  Upload,
+  Plus,
+  Trash2,
+  Filter,
+  Calendar
 } from 'lucide-react';
 import './App.css';
 
@@ -35,8 +40,15 @@ const ROLE_OPTIONS = [
 const SENIORITY_OPTIONS = ["intern", "entry", "mid", "senior", "lead", "staff"];
 const REMOTE_OPTIONS = ["remote", "hybrid", "onsite"];
 
+const POPULAR_SKILLS = [
+  "Python", "FastAPI", "React", "TypeScript", "Node.js", "PostgreSQL", 
+  "Redis", "Docker", "GraphQL", "Kubernetes", "AWS", "Go", 
+  "Distributed Systems", "Microservices", "Next.js", "Celery"
+];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('studio'); // 'studio' | 'feed' | 'engine'
+  const fileInputRef = useRef(null);
   
   // Candidate Profile State
   const [userId, setUserId] = useState(null);
@@ -52,6 +64,14 @@ export default function App() {
   const [extractedSkills, setExtractedSkills] = useState(['Python', 'FastAPI', 'PostgreSQL', 'Redis', 'Celery', 'Docker']);
   const [hasEmbedding, setHasEmbedding] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Resume Upload & Skill State
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
+  const [uploadSuccessMsg, setUploadSuccessMsg] = useState(null);
+  const [customSkillInput, setCustomSkillInput] = useState('');
+  const [minScore, setMinScore] = useState(0.70); // Enforce 70% match threshold
+  const [maxDays, setMaxDays] = useState(3);       // Enforce <= 3 days older
+  const [parsedMetadata, setParsedMetadata] = useState(null);
 
   // Matches State
   const [matches, setMatches] = useState([]);
@@ -94,7 +114,8 @@ export default function App() {
             preferred_remote_types: selectedRemote,
             preferred_locations: ['Remote - US'],
             raw_resume_text: resumeText,
-            min_similarity_score: 0.35
+            parsed_skills: extractedSkills,
+            min_similarity_score: 0.70
           }
         })
       });
@@ -102,10 +123,10 @@ export default function App() {
         const data = await res.json();
         setUserId(data.id);
         if (data.profile) {
-          setExtractedSkills(data.profile.parsed_skills || []);
+          setExtractedSkills(data.profile.parsed_skills || extractedSkills);
           setHasEmbedding(data.profile.has_embedding);
         }
-        fetchMatches(data.id);
+        fetchMatches(data.id, 0.70, 3);
       }
     } catch (err) {
       console.error("Init user error:", err);
@@ -126,14 +147,15 @@ export default function App() {
           preferred_remote_types: selectedRemote,
           preferred_locations: ['Remote - US'],
           raw_resume_text: resumeText,
-          min_similarity_score: 0.35
+          parsed_skills: extractedSkills,
+          min_similarity_score: minScore
         })
       });
       if (res.ok) {
         const updated = await res.json();
         setExtractedSkills(updated.parsed_skills || []);
         setHasEmbedding(true);
-        fetchMatches(userId);
+        fetchMatches(userId, minScore, maxDays);
       }
     } catch (err) {
       console.error("Save profile error:", err);
@@ -142,12 +164,70 @@ export default function App() {
     }
   };
 
-  // 3. Fetch Matches
-  const fetchMatches = async (targetUserId = userId) => {
+  // 3. Resume File Upload Handler
+  const handleFileUpload = async (file) => {
+    if (!file || !userId) return;
+    setIsUploadingResume(true);
+    setUploadSuccessMsg(null);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch(`/api/users/${userId}/resume`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.raw_resume_text) setResumeText(data.raw_resume_text);
+        if (data.parsed_skills && data.parsed_skills.length > 0) {
+          setExtractedSkills(data.parsed_skills);
+        }
+        if (data.target_roles && data.target_roles.length > 0) {
+          setSelectedRoles(data.target_roles);
+        }
+        if (data.seniority && !selectedSeniorities.includes(data.seniority)) {
+          setSelectedSeniorities([data.seniority]);
+        }
+        setParsedMetadata(data);
+        setUploadSuccessMsg(`✓ Successfully parsed "${file.name}"! Extracted ${data.parsed_skills?.length || 0} skills & updated profile.`);
+        fetchMatches(userId, minScore, maxDays);
+      } else {
+        const err = await res.json();
+        alert(`Resume upload failed: ${err.detail || 'Could not parse document'}`);
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
+    } finally {
+      setIsUploadingResume(false);
+    }
+  };
+
+  // Skill Management Helpers
+  const toggleSkill = (skill) => {
+    setExtractedSkills(prev => 
+      prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
+    );
+  };
+
+  const removeSkill = (skillToRemove) => {
+    setExtractedSkills(prev => prev.filter(s => s !== skillToRemove));
+  };
+
+  const addCustomSkill = () => {
+    const clean = customSkillInput.trim();
+    if (clean && !extractedSkills.includes(clean)) {
+      setExtractedSkills(prev => [...prev, clean]);
+      setCustomSkillInput('');
+    }
+  };
+
+  // 4. Fetch Matches (strictly >= 70% score, <= 3 days old)
+  const fetchMatches = async (targetUserId = userId, threshold = minScore, days = maxDays) => {
     if (!targetUserId) return;
     setIsLoadingMatches(true);
     try {
-      const res = await fetch(`/api/users/${targetUserId}/matches?limit=10`);
+      const res = await fetch(`/api/users/${targetUserId}/matches?limit=10&min_score=${threshold}&max_days=${days}`);
       if (res.ok) {
         const data = await res.json();
         setMatches(data);
@@ -314,7 +394,169 @@ export default function App() {
             <div className="glass-panel form-card">
               <div className="section-header">
                 <h2><Sparkles size={20} color="#818CF8" /> Candidate Profile & Intent</h2>
-                <p>Upload your resume and customize role targeting for reverse matching.</p>
+                <p>Upload your resume to automatically extract details, or customize your skills & target roles.</p>
+              </div>
+
+              {/* 1. Resume Document Upload Dropzone */}
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>
+                    Upload Resume Document
+                  </label>
+                  <span style={{ fontSize: '11px', color: '#4F46E5', fontWeight: 600 }}>
+                    PDF, DOCX, TXT
+                  </span>
+                </div>
+                
+                <div 
+                  className={`resume-upload-zone ${isUploadingResume ? 'is-uploading' : ''}`}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      handleFileUpload(e.dataTransfer.files[0]);
+                    }
+                  }}
+                  title="Click or drop resume file here"
+                >
+                  <input 
+                    type="file" 
+                    ref={fileInputRef}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleFileUpload(e.target.files[0]);
+                      }
+                    }}
+                    accept=".pdf,.docx,.txt"
+                    style={{ display: 'none' }}
+                  />
+                  <div className="resume-upload-icon">
+                    {isUploadingResume ? (
+                      <RefreshCw size={20} className="animate-spin" />
+                    ) : (
+                      <Upload size={20} />
+                    )}
+                  </div>
+                  <div className="resume-upload-title">
+                    {isUploadingResume ? 'Parsing Resume & Extracting Competencies...' : 'Click or Drop Resume File Here'}
+                  </div>
+                  <div className="resume-upload-sub">
+                    Automatically extracts tech skills, experience & filters 70%+ matches
+                  </div>
+                </div>
+
+                {uploadSuccessMsg && (
+                  <div style={{ 
+                    fontSize: '12px', 
+                    color: '#065F46', 
+                    background: '#ECFDF5', 
+                    padding: '8px 12px', 
+                    borderRadius: '6px', 
+                    border: '1px solid #A7F3D0', 
+                    marginBottom: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <CheckCircle size={14} color="#059669" />
+                    <span>{uploadSuccessMsg}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Interactive Technical Skills Selection */}
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>
+                    Selected Technical Skills ({extractedSkills.length})
+                  </label>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Core matching factor
+                  </span>
+                </div>
+
+                {/* Active Skills Tag Box */}
+                <div className="selected-skills-box">
+                  {extractedSkills.length === 0 ? (
+                    <span style={{ fontSize: '12px', color: '#94A3B8', fontStyle: 'italic' }}>
+                      No skills selected yet. Select popular skills below or upload your resume.
+                    </span>
+                  ) : (
+                    extractedSkills.map(skill => (
+                      <span key={skill} className="skill-tag-active">
+                        {skill}
+                        <button 
+                          type="button" 
+                          className="skill-tag-remove" 
+                          onClick={() => removeSkill(skill)}
+                          title={`Remove ${skill}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+
+                {/* Add Custom Skill Input */}
+                <div className="skill-add-input-row">
+                  <input 
+                    className="form-input"
+                    style={{ padding: '6px 12px', fontSize: '13px' }}
+                    placeholder="Add skill (e.g. Next.js, Kafka, Temporal)..."
+                    value={customSkillInput}
+                    onChange={(e) => setCustomSkillInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addCustomSkill();
+                      }
+                    }}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn-secondary"
+                    style={{ padding: '6px 14px', fontSize: '13px', whiteSpace: 'nowrap' }}
+                    onClick={addCustomSkill}
+                  >
+                    <Plus size={14} /> Add
+                  </button>
+                </div>
+
+                {/* Quick Toggle Popular Skills */}
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Quick Select Skills:
+                  </div>
+                  <div className="suggested-skills-grid">
+                    {POPULAR_SKILLS.map(skill => {
+                      const isSelected = extractedSkills.includes(skill);
+                      return (
+                        <button
+                          key={skill}
+                          type="button"
+                          className={`suggested-skill-btn ${isSelected ? 'active' : ''}`}
+                          onClick={() => toggleSkill(skill)}
+                        >
+                          {isSelected ? '✓ ' : '+ '} {skill}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Resume & Experience Text */}
+              <div className="form-group">
+                <label className="form-label">Resume & Experience Text</label>
+                <textarea
+                  className="form-textarea"
+                  rows={4}
+                  value={resumeText}
+                  onChange={(e) => setResumeText(e.target.value)}
+                  placeholder="Paste work experience, technologies, accomplishments or resume summary..."
+                />
               </div>
 
               {/* Target Roles */}
@@ -369,31 +611,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Resume Ingestion */}
-              <div className="form-group">
-                <label className="form-label">Resume & Experience Text</label>
-                <textarea
-                  className="form-textarea"
-                  value={resumeText}
-                  onChange={(e) => setResumeText(e.target.value)}
-                  placeholder="Paste work experience, technologies, accomplishments or resume summary..."
-                />
-              </div>
-
-              {/* Extracted Skills Visualizer */}
-              {extractedSkills.length > 0 && (
-                <div className="form-group">
-                  <label className="form-label">Extracted Core Skills ({extractedSkills.length})</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {extractedSkills.map(skill => (
-                      <span key={skill} className="skill-chip">
-                        <Check size={12} /> {skill}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Telegram & Email Channel Setup */}
               <div className="form-group">
                 <label className="form-label">9:00 AM Alert Recipient</label>
@@ -424,10 +641,10 @@ export default function App() {
                 disabled={isSavingProfile}
               >
                 {isSavingProfile ? (
-                  <>Embedding Intent Vector...</>
+                  <>Embedding Intent & Re-ranking...</>
                 ) : (
                   <>
-                    <Cpu size={16} /> Save Profile & Generate 384-D Vector
+                    <Cpu size={16} /> Save Profile & Re-Rank Matches
                   </>
                 )}
               </button>
@@ -438,15 +655,23 @@ export default function App() {
               {/* Action Banner */}
               <div className="glass-panel" style={{ padding: '20px 24px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
                 <div>
-                  <h3 style={{ fontSize: '18px', color: 'var(--text-primary)' }}>Personalized Match Stream</h3>
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                    Ranked by Vector Cosine (60%) + Title Match (25%) + Recency Factor (15%)
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <h3 style={{ fontSize: '18px', color: 'var(--text-primary)', margin: 0 }}>Personalized Match Stream</h3>
+                    <span className="match-threshold-badge">
+                      🎯 ≥ 70% Match
+                    </span>
+                    <span className="recency-badge">
+                      ⚡ Max 3 Days Old
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Ranked by Experience Fit (35%) + Skills Match (35%) + Title Alignment (20%) + Recency (10%)
                   </p>
                 </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                   <button 
                     className="btn-secondary"
-                    onClick={() => fetchMatches(userId)}
+                    onClick={() => fetchMatches(userId, minScore, maxDays)}
                     disabled={isLoadingMatches}
                   >
                     <RefreshCw size={15} className={isLoadingMatches ? 'animate-spin' : ''} />
@@ -467,12 +692,15 @@ export default function App() {
               {isLoadingMatches ? (
                 <div className="glass-panel" style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
                   <RefreshCw size={32} style={{ animation: 'spin 1s infinite linear', margin: '0 auto 16px' }} />
-                  <p>Running reverse matching engine across canonical jobs...</p>
+                  <p>Running reverse matching engine for ≥ 70% matches within the past 3 days...</p>
                 </div>
               ) : matches.length === 0 ? (
                 <div className="glass-panel" style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
                   <Briefcase size={36} style={{ margin: '0 auto 16px', opacity: 0.4 }} />
-                  <p>No matches found matching your current hard filters. Try adding more target roles or updating seniority!</p>
+                  <h4 style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>No matches found with ≥ 70% match score</h4>
+                  <p style={{ maxWidth: '420px', margin: '0 auto' }}>
+                    All matched jobs must score at least 70% against your selected skills & experience and be at most 3 days old. Try selecting relevant skills like <strong>React</strong>, <strong>TypeScript</strong>, <strong>Node.js</strong>, or <strong>GraphQL</strong>!
+                  </p>
                 </div>
               ) : (
                 <div className="matches-feed">
@@ -483,27 +711,42 @@ export default function App() {
                         <div className="job-card-header">
                           <div>
                             <div className="job-company">
-                              <ShieldCheck size={14} color="#06B6D4" /> {m.company}
+                              <ShieldCheck size={14} color="#0284C7" /> {m.company}
+                              <span style={{ 
+                                marginLeft: '8px', 
+                                fontSize: '11px', 
+                                fontWeight: 600, 
+                                background: '#EFF6FF', 
+                                color: '#2563EB', 
+                                padding: '2px 8px', 
+                                borderRadius: '4px' 
+                              }}>
+                                ⚡ Latest (≤ 3d)
+                              </span>
                             </div>
                             <h3 className="job-title">{m.title}</h3>
                           </div>
-                          <div className="match-score-badge">
-                            <span className="match-score-num">{matchPercent}%</span>
-                            <span className="match-score-label">Match Score</span>
+                          <div className="match-score-badge" style={{ background: matchPercent >= 70 ? 'linear-gradient(135deg, #ECFDF5, #D1FAE5)' : undefined, borderColor: matchPercent >= 70 ? '#A7F3D0' : undefined }}>
+                            <span className="match-score-num" style={{ color: matchPercent >= 70 ? '#059669' : undefined }}>
+                              {matchPercent}%
+                            </span>
+                            <span className="match-score-label">
+                              {matchPercent >= 70 ? 'Strong Match' : 'Match Score'}
+                            </span>
                           </div>
                         </div>
 
                         {/* Metadata row */}
                         <div className="job-meta-row">
                           <span className="meta-item">
-                            <Wifi size={14} color="#A5B4FC" /> {m.remote_type?.toUpperCase()}
+                            <Wifi size={14} color="#6366F1" /> {m.remote_type?.toUpperCase()}
                           </span>
                           <span className="meta-item">
-                            <Briefcase size={14} color="#A5B4FC" /> {m.seniority?.toUpperCase()}
+                            <Briefcase size={14} color="#6366F1" /> {m.seniority?.toUpperCase()}
                           </span>
                           {m.locations && m.locations.length > 0 && (
                             <span className="meta-item">
-                              <MapPin size={14} color="#A5B4FC" /> {m.locations.join(', ')}
+                              <MapPin size={14} color="#6366F1" /> {m.locations.join(', ')}
                             </span>
                           )}
                         </div>
@@ -511,7 +754,7 @@ export default function App() {
                         {/* Match Reasons */}
                         {m.reasons && (
                           <div className="job-explanation">
-                            💡 <strong>Match Rationale:</strong> {m.reasons}
+                            💡 <strong>Match Rationale:</strong> {Array.isArray(m.reasons) ? m.reasons.join(' • ') : m.reasons}
                           </div>
                         )}
 
@@ -529,7 +772,10 @@ export default function App() {
                         {/* Actions and Breakdown */}
                         <div className="job-actions">
                           <div className="score-breakdown">
-                            <div>Vec: <span>{m.scores?.vector_similarity?.toFixed(2)}</span></div>
+                            <div>Exp Vec: <span>{m.scores?.vector_similarity?.toFixed(2)}</span></div>
+                            {m.scores?.skill_score !== undefined && (
+                              <div>Skills: <span>{m.scores?.skill_score?.toFixed(2)}</span></div>
+                            )}
                             <div>Title: <span>{m.scores?.title_keyword_score?.toFixed(2)}</span></div>
                             <div>Recency: <span>{m.scores?.recency_score?.toFixed(2)}</span></div>
                           </div>
@@ -545,20 +791,21 @@ export default function App() {
                             </button>
                             <button 
                               className="btn-secondary"
-                              style={{ padding: '7px 12px', fontSize: '12px', color: '#F87171' }}
+                              style={{ padding: '7px 12px', fontSize: '12px', color: '#DC2626' }}
                               onClick={() => handleFeedback(m.job_id, 'dismissed')}
                               title="Dismiss from future recommendations"
                             >
                               <X size={14} /> Dismiss
                             </button>
                             <a
-                              href={m.apply_url}
+                              href={m.apply_url || '#'}
                               target="_blank"
-                              rel="noopener noreferrer"
+                              rel="noreferrer"
                               className="btn-primary"
-                              style={{ padding: '7px 14px', fontSize: '12px', textDecoration: 'none' }}
+                              style={{ padding: '7px 16px', fontSize: '12px', textDecoration: 'none' }}
+                              onClick={() => handleFeedback(m.job_id, 'applied')}
                             >
-                              Apply Directly <ExternalLink size={13} />
+                              Apply Directly <ExternalLink size={13} style={{ marginLeft: '4px' }} />
                             </a>
                           </div>
                         </div>

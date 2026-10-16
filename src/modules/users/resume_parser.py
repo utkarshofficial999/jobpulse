@@ -48,6 +48,29 @@ class ResumeParser:
             logger.error("Failed to parse PDF resume", error=str(e))
             raise ValueError(f"Could not read PDF resume: {str(e)}")
 
+    @staticmethod
+    def extract_text_from_docx(docx_bytes: bytes) -> str:
+        """Extracts text content from DOCX binary stream."""
+        try:
+            import docx
+            doc = docx.Document(io.BytesIO(docx_bytes))
+            text_parts = [p.text for p in doc.paragraphs if p.text]
+            return "\n".join(text_parts).strip()
+        except Exception as e:
+            logger.error("Failed to parse DOCX resume", error=str(e))
+            raise ValueError(f"Could not read DOCX resume: {str(e)}")
+
+    @classmethod
+    def extract_text(cls, filename: str, content: bytes) -> str:
+        """Dispatches extraction based on file extension."""
+        name_lower = filename.lower()
+        if name_lower.endswith(".pdf"):
+            return cls.extract_text_from_pdf(content)
+        elif name_lower.endswith(".docx"):
+            return cls.extract_text_from_docx(content)
+        else:
+            return content.decode("utf-8", errors="ignore").strip()
+
     @classmethod
     def extract_skills(cls, text: str) -> list[str]:
         """Extracts recognized technical skills from resume text using regex word-boundaries and Gemini LLM."""
@@ -88,6 +111,73 @@ class ResumeParser:
             except ValueError:
                 pass
         return None
+
+    @classmethod
+    def extract_metadata(cls, text: str) -> dict:
+        """Extracts comprehensive candidate profile details from resume text."""
+        skills = cls.extract_skills(text)
+        exp_years = cls.extract_experience_years(text)
+        
+        # Heuristic seniority
+        seniority = "mid"
+        text_lower = text.lower()
+        if "staff" in text_lower or "principal" in text_lower:
+            seniority = "staff"
+        elif "lead" in text_lower or "architect" in text_lower:
+            seniority = "lead"
+        elif "senior" in text_lower or (exp_years and exp_years >= 5):
+            seniority = "senior"
+        elif "intern" in text_lower:
+            seniority = "intern"
+        elif "junior" in text_lower or (exp_years and exp_years <= 2):
+            seniority = "entry"
+
+        # Heuristic suggested roles
+        suggested_roles = []
+        role_keywords = [
+            ("Senior Backend Engineer", ["backend", "server", "distributed", "fastapi", "django", "microservices"]),
+            ("Staff Software Engineer", ["staff", "principal", "architect"]),
+            ("Fullstack Engineer", ["fullstack", "full-stack", "react", "next.js", "frontend and backend"]),
+            ("AI / ML Engineer", ["machine learning", "ml", "ai", "pytorch", "tensorflow", "llm"]),
+            ("Platform & DevOps", ["devops", "platform", "sre", "infrastructure", "kubernetes", "docker", "terraform"]),
+            ("Product Engineer", ["product engineer", "ux", "web"]),
+            ("Data Engineer", ["data engineer", "etl", "pipeline", "spark", "snowflake", "bigquery"])
+        ]
+        for role_name, kws in role_keywords:
+            if any(kw in text_lower for kw in kws):
+                suggested_roles.append(role_name)
+
+        summary = ""
+        # Try Gemini LLM extraction first
+        try:
+            from src.modules.llm.gemini import GeminiService
+            if GeminiService.is_available():
+                parsed = GeminiService.parse_resume(text)
+                if parsed:
+                    if parsed.get("skills"):
+                        for sk in parsed["skills"]:
+                            if sk and sk not in skills:
+                                skills.append(sk)
+                    if parsed.get("experience_years"):
+                        exp_years = parsed["experience_years"]
+                    if parsed.get("seniority"):
+                        seniority = parsed["seniority"]
+                    if parsed.get("summary"):
+                        summary = parsed["summary"]
+        except Exception:
+            pass
+
+        if not summary:
+            first_lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 20]
+            summary = " ".join(first_lines[:2]) if first_lines else "Experienced Software Professional"
+
+        return {
+            "skills": sorted(list(set(skills))),
+            "experience_years": exp_years,
+            "seniority": seniority,
+            "target_roles": suggested_roles[:3] or ["Software Engineer"],
+            "summary": summary
+        }
 
     @classmethod
     def format_profile_for_embedding(

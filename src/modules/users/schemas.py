@@ -9,7 +9,8 @@ class ProfileCreateOrUpdate(BaseModel):
     preferred_remote_types: list[str] = Field(default_factory=list, json_schema_extra={"example": ["remote", "hybrid"]})
     preferred_locations: list[str] = Field(default_factory=list, json_schema_extra={"example": ["United States", "Remote"]})
     raw_resume_text: Optional[str] = Field(None, json_schema_extra={"example": "Experienced Python & Go engineer with 5 years building high-scale distributed systems with PostgreSQL and Redis."})
-    min_similarity_score: float = Field(0.65, ge=0.0, le=1.0)
+    parsed_skills: Optional[list[str]] = Field(None, json_schema_extra={"example": ["Python", "FastAPI", "PostgreSQL", "Docker", "Redis"]})
+    min_similarity_score: float = Field(0.70, ge=0.0, le=1.0)
 
 
 class UserCreate(BaseModel):
@@ -30,10 +31,26 @@ class ProfileRead(BaseModel):
     preferred_remote_types: list[str]
     preferred_locations: list[str]
     parsed_skills: list[str]
+    raw_resume_text: Optional[str] = None
     min_similarity_score: float
     has_embedding: bool = False
     created_at: datetime
     updated_at: datetime
+
+
+class ResumeUploadResponse(BaseModel):
+    id: str
+    target_roles: list[str] = Field(default_factory=list)
+    target_seniorities: list[str] = Field(default_factory=list)
+    preferred_remote_types: list[str] = Field(default_factory=list)
+    preferred_locations: list[str] = Field(default_factory=list)
+    parsed_skills: list[str] = Field(default_factory=list)
+    raw_resume_text: Optional[str] = None
+    summary: Optional[str] = None
+    experience_years: Optional[int] = None
+    seniority: Optional[str] = None
+    min_similarity_score: float = 0.70
+    has_embedding: bool = True
 
 
 class UserRead(BaseModel):

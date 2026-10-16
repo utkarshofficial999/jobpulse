@@ -35,11 +35,13 @@ class MatchingEngine:
         db: Session,
         user_id: str,
         limit: int = 10,
-        min_score: Optional[float] = None,
+        min_score: Optional[float] = 0.70,
         only_recent_hours: Optional[int] = None,
+        max_days: Optional[int] = 3,
     ) -> list[MatchResult]:
         """
         Retrieves, ranks, and filters top matching jobs for a candidate profile.
+        Strictly enforces max_days (at max 3 days older) and min_score (70% match).
         """
         user = db.get(User, user_id)
         if not user or not user.profile:
@@ -47,7 +49,7 @@ class MatchingEngine:
             return []
 
         profile: CandidateProfile = user.profile
-        threshold = min_score if min_score is not None else profile.min_similarity_score
+        threshold = min_score if min_score is not None else (profile.min_similarity_score or 0.70)
 
         dismissed_ids = cls.get_dismissed_job_ids(db, user_id)
 
@@ -57,8 +59,12 @@ class MatchingEngine:
             Job.embedding.isnot(None),
         )
 
+        now = datetime.now(timezone.utc)
         if only_recent_hours:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=only_recent_hours)
+            cutoff = now - timedelta(hours=only_recent_hours)
+            stmt = stmt.where(Job.first_seen_at >= cutoff)
+        elif max_days:
+            cutoff = now - timedelta(days=max_days)
             stmt = stmt.where(Job.first_seen_at >= cutoff)
 
         jobs = list(db.execute(stmt).scalars().all())

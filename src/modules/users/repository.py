@@ -88,6 +88,10 @@ class UserRepository:
 
         if profile_data.raw_resume_text is not None:
             profile.raw_resume_text = profile_data.raw_resume_text
+
+        if profile_data.parsed_skills is not None:
+            profile.parsed_skills = profile_data.parsed_skills
+        elif profile_data.raw_resume_text is not None:
             # Extract skills automatically from resume
             extracted_skills = ResumeParser.extract_skills(profile_data.raw_resume_text)
             profile.parsed_skills = extracted_skills
