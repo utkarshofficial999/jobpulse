@@ -290,19 +290,19 @@ export default function App() {
           {alertSuccess && (
             <div className="notification-banner">
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <CheckCircle size={24} color="#10B981" />
+                <CheckCircle size={24} color="#059669" />
                 <div>
-                  <h4 style={{ color: '#F8FAFC', fontSize: '15px' }}>
+                  <h4 style={{ color: '#065F46', fontSize: '15px', fontWeight: 700 }}>
                     9 AM Digest Dispatched via {alertSuccess.channel.toUpperCase()}!
                   </h4>
-                  <p style={{ fontSize: '13px', color: '#94A3B8' }}>
+                  <p style={{ fontSize: '13px', color: '#047857' }}>
                     Delivered {alertSuccess.matches_count} high-confidence opportunities to recipient <code>{alertSuccess.recipient}</code>. Outbox ID: <code>{alertSuccess.outbox_id?.slice(0, 8)}...</code>
                   </p>
                 </div>
               </div>
               <button 
                 onClick={() => setAlertSuccess(null)}
-                style={{ background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer' }}
+                style={{ background: 'transparent', border: 'none', color: '#065F46', cursor: 'pointer' }}
               >
                 <X size={18} />
               </button>
