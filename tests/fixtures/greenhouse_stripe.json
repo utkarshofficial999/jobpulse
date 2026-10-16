@@ -1,0 +1,73 @@
+{
+  "jobs": [
+    {
+      "id": 500101,
+      "title": "Senior Backend Engineer - Core Infrastructure",
+      "updated_at": "2026-10-15T09:30:00-07:00",
+      "absolute_url": "https://boards.greenhouse.io/stripe/jobs/500101",
+      "location": {
+        "name": "San Francisco, CA; Remote - US"
+      },
+      "content": "&lt;div&gt;&lt;p&gt;Stripe builds economic infrastructure for the internet.&lt;/p&gt;&lt;p&gt;We are looking for a &lt;strong&gt;Senior Backend Engineer&lt;/strong&gt; to join our Core Infra team.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Design distributed systems&lt;/li&gt;&lt;li&gt;Scale Postgres and Redis&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;",
+      "departments": [
+        {
+          "id": 10,
+          "name": "Engineering"
+        }
+      ],
+      "offices": [
+        {
+          "id": 1,
+          "name": "San Francisco",
+          "location": "San Francisco, CA"
+        }
+      ]
+    },
+    {
+      "id": 500102,
+      "title": "Software Engineering Intern (Summer 2027)",
+      "updated_at": "2026-10-14T14:15:00-07:00",
+      "absolute_url": "https://boards.greenhouse.io/stripe/jobs/500102",
+      "location": {
+        "name": "Seattle, WA"
+      },
+      "content": "&lt;p&gt;Join our 12-week summer internship program. Work on production systems with senior mentors.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 10,
+          "name": "Engineering"
+        }
+      ],
+      "offices": [
+        {
+          "id": 2,
+          "name": "Seattle",
+          "location": "Seattle, WA"
+        }
+      ]
+    },
+    {
+      "id": 500103,
+      "title": "Staff AI Research Engineer - Hybrid",
+      "updated_at": "2026-10-16T08:00:00-07:00",
+      "absolute_url": "https://boards.greenhouse.io/stripe/jobs/500103",
+      "location": {
+        "name": "New York, NY"
+      },
+      "content": "&lt;div&gt;&lt;p&gt;Lead next-generation foundation models for payment risk analysis. Requires 3 days per week in NYC office.&lt;/p&gt;&lt;/div&gt;",
+      "departments": [
+        {
+          "id": 11,
+          "name": "Applied ML"
+        }
+      ],
+      "offices": [
+        {
+          "id": 3,
+          "name": "New York",
+          "location": "New York, NY"
+        }
+      ]
+    }
+  ]
+}
